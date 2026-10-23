@@ -32,6 +32,8 @@ from zoneinfo import ZoneInfo
 
 import psycopg2
 
+SCHEMA = os.environ.get("PGSCHEMA", "DW Health")
+
 DB = os.environ.get("PGDATABASE", "postgres")
 TZ = ZoneInfo("America/Vancouver")  # DST-aware
 
@@ -364,7 +366,7 @@ def main():
         try:
             with existing.cursor() as cur:
                 cur.execute(
-                    'SELECT id FROM "DW Health"."food_log_entry" WHERE source_msg_id = %s',
+                    f'SELECT id FROM "{SCHEMA}"."food_log_entry" WHERE source_msg_id = %s',
                     (args.source_msg_id,))
                 row = cur.fetchone()
                 if row:
@@ -376,8 +378,8 @@ def main():
     conn = psycopg2.connect(f"dbname={DB}")
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO "DW Health"."food_log_entry"
+            cur.execute(f"""
+                INSERT INTO "{SCHEMA}"."food_log_entry"
                     (recorded_at, consumed_at, consumed_date, raw_text,
                      source_msg_id, input_mode, time_source, parse_status,
                      planned, occasion_type)

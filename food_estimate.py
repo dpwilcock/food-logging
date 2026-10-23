@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+f"""
 food_estimate.py — Nightly batch: split entries into items, match against cache,
 estimate novel foods via one model call, write items + update cache.
 
@@ -25,6 +25,8 @@ from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
+
+SCHEMA = os.environ.get("PGSCHEMA", "DW Health")
 
 DB = os.environ.get("PGDATABASE", "postgres")
 TZ = ZoneInfo("America/Vancouver")  # DST-aware
@@ -254,7 +256,7 @@ def main():
                         sys.exit(1)
 
                     cur.execute(
-                        """INSERT INTO "DW Health"."food_estimate_cache"
+                        """INSERT INTO "{SCHEMA}"."food_estimate_cache"
                            (food_key, canonical_name, unit, kcal_per_unit,
                             confidence, estimate_source)
                            VALUES (%s, %s, %s, %s, %s, 'model')
@@ -303,7 +305,7 @@ def main():
             if args.date:
                 cur.execute("""
                     SELECT id, raw_text, consumed_date
-                    FROM "DW Health"."food_log_entry"
+                    FROM "{SCHEMA}"."food_log_entry"
                     WHERE parse_status = 'pending'
                       AND parse_attempts < 3
                       AND superseded_by IS NULL
@@ -313,7 +315,7 @@ def main():
             else:
                 cur.execute("""
                     SELECT id, raw_text, consumed_date
-                    FROM "DW Health"."food_log_entry"
+                    FROM "{SCHEMA}"."food_log_entry"
                     WHERE parse_status = 'pending'
                       AND parse_attempts < 3
                       AND superseded_by IS NULL
@@ -345,7 +347,7 @@ def main():
             if all_food_keys:
                 cur.execute("""
                     SELECT food_key, canonical_name, unit, kcal_per_unit, confidence
-                    FROM "DW Health"."food_estimate_cache"
+                    FROM "{SCHEMA}"."food_estimate_cache"
                     WHERE food_key = ANY(%s)
                 """, (list(all_food_keys),))
                 for row in cur.fetchall():
@@ -416,7 +418,7 @@ def main():
                 for item in item_writes:
                     entry_id, seq, food_key, desc, qty, unit, kcal, kj, conf, source = item
                     wcur.execute("""
-                        INSERT INTO "DW Health"."food_log_item"
+                        INSERT INTO "{SCHEMA}"."food_log_item"
                             (entry_id, seq, food_key, description, qty, unit,
                              kcal, kj, confidence, estimate_source, estimated_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
@@ -432,7 +434,7 @@ def main():
                 # Bump times_seen on hit cache rows
                 for food_key in {item[2] for item in item_writes}:
                     wcur.execute("""
-                        UPDATE "DW Health"."food_estimate_cache"
+                        UPDATE "{SCHEMA}"."food_estimate_cache"
                         SET times_seen = times_seen + 1,
                             last_seen_at = now()
                         WHERE food_key = %s
@@ -454,7 +456,7 @@ def main():
                     with conn.cursor() as wcur:
                         for entry in hit_only_entries:
                             wcur.execute("""
-                                UPDATE "DW Health"."food_log_entry"
+                                UPDATE "{SCHEMA}"."food_log_entry"
                                 SET parse_status = 'parsed',
                                     parse_attempts = parse_attempts + 1
                                 WHERE id = %s
@@ -483,7 +485,7 @@ def main():
                 with conn.cursor() as wcur:
                     for entry in entries:
                         wcur.execute("""
-                            UPDATE "DW Health"."food_log_entry"
+                            UPDATE "{SCHEMA}"."food_log_entry"
                             SET parse_status = 'parsed',
                                 parse_attempts = parse_attempts + 1
                             WHERE id = %s
@@ -509,7 +511,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
             SELECT id, raw_text, consumed_date
-            FROM "DW Health"."food_log_entry"
+            FROM "{SCHEMA}"."food_log_entry"
             WHERE parse_status = 'pending'
               AND parse_attempts < 3
               AND superseded_by IS NULL
@@ -534,7 +536,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
         if all_food_keys:
             cur.execute("""
                 SELECT food_key, canonical_name, unit, kcal_per_unit, confidence
-                FROM "DW Health"."food_estimate_cache"
+                FROM "{SCHEMA}"."food_estimate_cache"
                 WHERE food_key = ANY(%s)
             """, (list(all_food_keys),))
             cache_hits = {row["food_key"]: dict(row) for row in cur.fetchall()}
@@ -557,7 +559,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
         with conn.cursor() as wcur:
             for item in item_writes:
                 wcur.execute("""
-                    INSERT INTO "DW Health"."food_log_item"
+                    INSERT INTO "{SCHEMA}"."food_log_item"
                         (entry_id, seq, food_key, description, qty, unit,
                          kcal, kj, confidence, estimate_source, estimated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
@@ -568,7 +570,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
 
             for food_key in {i[2] for i in item_writes}:
                 wcur.execute("""
-                    UPDATE "DW Health"."food_estimate_cache"
+                    UPDATE "{SCHEMA}"."food_estimate_cache"
                     SET times_seen = times_seen + 1, last_seen_at = now()
                     WHERE food_key = %s
                 """, (food_key,))
@@ -577,7 +579,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
             for entry in entries:
                 if entry["id"] not in miss_ids:
                     wcur.execute("""
-                        UPDATE "DW Health"."food_log_entry"
+                        UPDATE "{SCHEMA}"."food_log_entry"
                         SET parse_status = 'parsed', parse_attempts = parse_attempts + 1
                         WHERE id = %s
                     """, (entry["id"],))
@@ -599,17 +601,17 @@ def rebuild_day(conn, day: date):
     """Rebuild food_day for a given date."""
     with conn.cursor() as cur:
         cur.execute("""
-            DELETE FROM "DW Health"."food_day" WHERE consumed_date = %s
+            DELETE FROM "{SCHEMA}"."food_day" WHERE consumed_date = %s
         """, (day,))
 
         cur.execute("""
             WITH occ AS (
                 SELECT id,
                        consumed_at - LAG(consumed_at) OVER (ORDER BY consumed_at) AS gap
-                FROM "DW Health"."food_log_entry"
+                FROM "{SCHEMA}"."food_log_entry"
                 WHERE consumed_date = %s AND superseded_by IS NULL
             )
-            INSERT INTO "DW Health"."food_day" (
+            INSERT INTO "{SCHEMA}"."food_day" (
                 consumed_date, kcal_total, kj_total, item_count, entry_count,
                 first_consumed_at, last_consumed_at, eating_window_mins,
                 occasion_count, unestimated_items, rebuilt_at
@@ -630,8 +632,8 @@ def rebuild_day(conn, day: date):
                 AS occasion_count,
                 COUNT(i.id) FILTER (WHERE i.kcal IS NULL)::smallint AS unestimated_items,
                 now()
-            FROM "DW Health"."food_log_entry" e
-            LEFT JOIN "DW Health"."food_log_item" i ON i.entry_id = e.id
+            FROM "{SCHEMA}"."food_log_entry" e
+            LEFT JOIN "{SCHEMA}"."food_log_item" i ON i.entry_id = e.id
             WHERE e.consumed_date = %s
               AND e.superseded_by IS NULL
             GROUP BY e.consumed_date
