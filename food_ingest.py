@@ -28,11 +28,12 @@ import argparse
 from datetime import datetime, time, timezone, timedelta
 from typing import Optional, Tuple
 from collections import OrderedDict
+from zoneinfo import ZoneInfo
 
 import psycopg2
 
 DB = os.environ.get("PGDATABASE", "postgres")
-TZ = timezone(timedelta(hours=-7))  # America/Vancouver (PDT)
+TZ = ZoneInfo("America/Vancouver")  # DST-aware
 
 # ── NUMBER WORD NORMALIZATION ──────────────────────────────────────────
 
@@ -59,21 +60,20 @@ NUMBER_WORDS = {
 }
 
 def normalize_number_words(text: str) -> str:
-    """Replace word-numbers before quantities with digits."""
-    words = text.lower().split()
+    """Replace word-numbers *only* when they act as quantities (next word is
+    a unit or food word). Verbs/prepositions like "ate", "to", "for" stay
+    intact when followed by ordinary words."""
+    words = text.split()
     result = []
     i = 0
     while i < len(words):
-        w = words[i].strip(",.;:!?")
-        # Check next word to see if this is a quantity
-        if w in NUMBER_WORDS:
-            # Is next word something that looks like a food unit?
-            if i + 1 < len(words):
-                next_w = words[i + 1].strip(",.;:!?")
-                if next_w in UNIT_WORDS or next_w.endswith(("s",)) and i + 2 < len(words):
-                    pass  # proceed with replacement
-                # Always replace if followed by a unit-like word or food-like word
-            val = NUMBER_WORDS[w]
+        w = words[i]
+        stripped = w.strip(",.;:!?")
+        # Look at the next significant word
+        nxt = words[i + 1].strip(",.;:!?").lower() if i + 1 < len(words) else None
+        # Only treat as quantity if next word is a unit or a food-like word
+        if stripped.lower() in NUMBER_WORDS and nxt and (nxt in UNIT_WORDS or looks_like_food(nxt)):
+            val = NUMBER_WORDS[stripped.lower()]
             if val == int(val):
                 result.append(str(int(val)))
             else:
@@ -91,6 +91,21 @@ UNIT_WORDS = {
     "plates", "plate", "bowls", "bowl", "eggs", "egg", "cookies", "cookie",
     "bites", "bite", "rolls", "roll", "mugs", "mug",
 }
+
+# Common food nouns (used to decide whether a number-word is a quantity)
+FOOD_WORDS = {
+    "toast", "slices", "sandwich", "sandwiches", "cookies", "cookie",
+    "pizza", "slices", "eggs", "egg", "bagel", "bagels", "muffin",
+    "muffins", "banana", "bananas", "apples", "apple", "oranges",
+    "orange", "chicken", "burger", "burgers", "tacos", "taco", "sushi",
+    "rolls", "rolls", "pieces", "piece", 
+}
+
+def looks_like_food(word: str) -> bool:
+    """Heuristic: a word that ends in a common food-sounding suffix or is a
+    known food word. Cheap and case-insensitive."""
+    w = word.lower().rstrip(".s")
+    return w in FOOD_WORDS or w.endswith(("ies", "oes"))
 
 # ── FOOD KEY NORMALIZATION ────────────────────────────────────────────
 
@@ -125,9 +140,9 @@ def extract_planned(text: str) -> Tuple[Optional[bool], str]:
     # Also check for voice keyword
     lowered = text.lower().strip()
     if lowered.startswith("planned "):
-        return True, text[9:].strip()
+        return True, text[len("planned "):].strip()
     if lowered.startswith("unplanned "):
-        return False, text[11:].strip()
+        return False, text[len("unplanned "):].strip()
     return None, text
 
 # ── TIMESTAMP INFERENCE ──────────────────────────────────────────────
@@ -159,9 +174,10 @@ def resolve_consumed_at(text: str, recorded_at: datetime) -> tuple[datetime, str
     for pattern, method in TIME_PATTERNS:
         m = pattern.search(text)
         if m:
-            if pattern.pattern == 'noon':
+            pat_str = pattern.pattern
+            if 'noon' in pat_str:
                 t = time(12, 0)
-            elif pattern.pattern == 'midnight':
+            elif 'midnight' in pat_str:
                 t = time(0, 0)
             else:
                 hour = int(m.group(1))

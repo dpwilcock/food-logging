@@ -9,9 +9,10 @@ Usage:
 Exit code 0: success (or nothing to do).
 Exit code 1: error.
 
-The model call expects the agent/OpenClaw to provide estimation; this script
-prepares the batch and writes back results. See food_estimate_agent.md for the
-agent-side prompt.
+The model call is provided by the agent harness (OpenClaw): this script prepares
+novel items as a JSON batch for the agent to estimate (see the `estimate` block in
+main()); the agent returns kJ values that this script writes back. The agent-side
+prompt lives with the harness skill, not in this repo.
 """
 
 import os
@@ -20,12 +21,13 @@ import sys
 import json
 import argparse
 from datetime import date, datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
 
 DB = os.environ.get("PGDATABASE", "postgres")
-TZ = timezone(timedelta(hours=-7))  # America/Vancouver (PDT)
+TZ = ZoneInfo("America/Vancouver")  # DST-aware
 
 # ── ITEM SPLITTING ────────────────────────────────────────────────────
 
