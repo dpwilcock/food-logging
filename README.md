@@ -1,5 +1,9 @@
 # Food Logging Pipeline
 
+Part of my Ai/LLM Agent setup - allows verbally talking to telegram, whisper transcription, and recording the items of food I've eaten.
+Nightly run uses the LLM to pull in calorie/kJ count for the food either from a cache, or from the internet at large.
+Works great - lowest friction food tracking, so that for the most part it's easy to just do it and get on with life.
+
 Parse and store food/drink intake from raw text, estimate energy (kJ) nightly, and report.
 
 Parses free-text food and drink log entries (e.g. "lunch: chicken sandwich and a coffee"), normalizes number-words, infers meal occasion, stores to PostgreSQL, and estimates energy intake using a food database.
