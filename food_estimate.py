@@ -256,7 +256,7 @@ def main():
                         sys.exit(1)
 
                     cur.execute(
-                        """INSERT INTO "{SCHEMA}"."food_estimate_cache"
+                        f"""INSERT INTO "{SCHEMA}"."food_estimate_cache"
                            (food_key, canonical_name, unit, kcal_per_unit,
                             confidence, estimate_source)
                            VALUES (%s, %s, %s, %s, %s, 'model')
@@ -303,7 +303,7 @@ def main():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             # 1. Get pending entries
             if args.date:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT id, raw_text, consumed_date
                     FROM "{SCHEMA}"."food_log_entry"
                     WHERE parse_status = 'pending'
@@ -313,7 +313,7 @@ def main():
                     ORDER BY id
                 """, (args.date,))
             else:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT id, raw_text, consumed_date
                     FROM "{SCHEMA}"."food_log_entry"
                     WHERE parse_status = 'pending'
@@ -345,7 +345,7 @@ def main():
             # 3. Check cache hits
             cache_hits = {}
             if all_food_keys:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT food_key, canonical_name, unit, kcal_per_unit, confidence
                     FROM "{SCHEMA}"."food_estimate_cache"
                     WHERE food_key = ANY(%s)
@@ -417,7 +417,7 @@ def main():
                 # Write items with cache hits
                 for item in item_writes:
                     entry_id, seq, food_key, desc, qty, unit, kcal, kj, conf, source = item
-                    wcur.execute("""
+                    wcur.execute(f"""
                         INSERT INTO "{SCHEMA}"."food_log_item"
                             (entry_id, seq, food_key, description, qty, unit,
                              kcal, kj, confidence, estimate_source, estimated_at)
@@ -433,7 +433,7 @@ def main():
 
                 # Bump times_seen on hit cache rows
                 for food_key in {item[2] for item in item_writes}:
-                    wcur.execute("""
+                    wcur.execute(f"""
                         UPDATE "{SCHEMA}"."food_estimate_cache"
                         SET times_seen = times_seen + 1,
                             last_seen_at = now()
@@ -455,7 +455,7 @@ def main():
                 if hit_only_entries:
                     with conn.cursor() as wcur:
                         for entry in hit_only_entries:
-                            wcur.execute("""
+                            wcur.execute(f"""
                                 UPDATE "{SCHEMA}"."food_log_entry"
                                 SET parse_status = 'parsed',
                                     parse_attempts = parse_attempts + 1
@@ -484,7 +484,7 @@ def main():
                 # All hits, mark entries parsed
                 with conn.cursor() as wcur:
                     for entry in entries:
-                        wcur.execute("""
+                        wcur.execute(f"""
                             UPDATE "{SCHEMA}"."food_log_entry"
                             SET parse_status = 'parsed',
                                 parse_attempts = parse_attempts + 1
@@ -509,7 +509,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
     Used by --affected-dates auto-complete after --write-cache fills cache
     for novel foods, so the whole pipeline completes atomically in one call."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("""
+        cur.execute(f"""
             SELECT id, raw_text, consumed_date
             FROM "{SCHEMA}"."food_log_entry"
             WHERE parse_status = 'pending'
@@ -534,7 +534,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
         # Cache hits (cache was just populated by --write-cache or already exists)
         cache_hits = {}
         if all_food_keys:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT food_key, canonical_name, unit, kcal_per_unit, confidence
                 FROM "{SCHEMA}"."food_estimate_cache"
                 WHERE food_key = ANY(%s)
@@ -558,7 +558,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
 
         with conn.cursor() as wcur:
             for item in item_writes:
-                wcur.execute("""
+                wcur.execute(f"""
                     INSERT INTO "{SCHEMA}"."food_log_item"
                         (entry_id, seq, food_key, description, qty, unit,
                          kcal, kj, confidence, estimate_source, estimated_at)
@@ -569,7 +569,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
                 """, item)
 
             for food_key in {i[2] for i in item_writes}:
-                wcur.execute("""
+                wcur.execute(f"""
                     UPDATE "{SCHEMA}"."food_estimate_cache"
                     SET times_seen = times_seen + 1, last_seen_at = now()
                     WHERE food_key = %s
@@ -578,7 +578,7 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
             miss_ids = {m["entry_id"] for m in remaining_misses}
             for entry in entries:
                 if entry["id"] not in miss_ids:
-                    wcur.execute("""
+                    wcur.execute(f"""
                         UPDATE "{SCHEMA}"."food_log_entry"
                         SET parse_status = 'parsed', parse_attempts = parse_attempts + 1
                         WHERE id = %s
@@ -600,11 +600,11 @@ def _run_batch_for_date(conn, batch_date: date) -> dict:
 def rebuild_day(conn, day: date):
     """Rebuild food_day for a given date."""
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             DELETE FROM "{SCHEMA}"."food_day" WHERE consumed_date = %s
         """, (day,))
 
-        cur.execute("""
+        cur.execute(f"""
             WITH occ AS (
                 SELECT id,
                        consumed_at - LAG(consumed_at) OVER (ORDER BY consumed_at) AS gap
